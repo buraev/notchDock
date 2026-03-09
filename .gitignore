@@ -52,6 +52,13 @@ playground.xcworkspace
 
 # Claude Code
 .claude/
+.agents/
+CLAUDE.md
+skills-lock.json
+
+# Workspace user state
+*.xcworkspace/xcuserdata/
+*.xcworkspace/contents.xcworkspacedata
 
 # Code Injection
 iOSInjectionProject/

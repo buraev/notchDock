@@ -39,4 +39,9 @@ enum AppLauncher {
         }
         return bundleID
     }
+
+    /// Check if an application is currently running.
+    static func isRunning(bundleID: String) -> Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleID }
+    }
 }
