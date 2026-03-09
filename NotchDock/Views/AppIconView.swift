@@ -24,8 +24,6 @@ struct AppIconView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: iconSize, height: iconSize)
-                    .scaleEffect(isHovering ? 1.15 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovering)
 
                 // Running indicator dot
                 Circle()

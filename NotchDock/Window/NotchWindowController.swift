@@ -15,6 +15,7 @@ final class NotchWindowController: NSWindowController {
     private let iconSpacing: CGFloat = 8
     private let dockPadding: CGFloat = 10     // equal padding on all sides
     private let indicatorSpace: CGFloat = 8   // space for running dot below icon
+    private let tooltipOverflow: CGFloat = 30  // extra space below dock for tooltip
 
     // Background view (pure black like notch)
     private var backgroundView: NSView?
@@ -64,9 +65,9 @@ final class NotchWindowController: NSWindowController {
         // At minimum, match notch width
         let dockWidth = max(notchRect.width, contentWidth)
 
-        // Height: notch + padding top + icon + indicator space + padding bottom
+        // Height: notch + padding top + icon + indicator space + padding bottom + tooltip overflow
         let dockAreaHeight = dockPadding + iconSize + indicatorSpace + dockPadding
-        let totalHeight = notchRect.height + dockAreaHeight
+        let totalHeight = notchRect.height + dockAreaHeight + tooltipOverflow
 
         return NSRect(
             x: notchRect.midX - dockWidth / 2,
@@ -212,12 +213,12 @@ final class NotchWindowController: NSWindowController {
 
         // Create custom T-shape: dock bar + notch connector
         let path = CGMutablePath()
-        let cornerRadius: CGFloat = 16
-        let notchCornerRadius: CGFloat = 10
+        let cornerRadius: CGFloat = 22
+        let notchCornerRadius: CGFloat = 14
 
         let dockLeft: CGFloat = 0
         let dockRight = bounds.width
-        let dockBottom: CGFloat = 0
+        let dockBottom: CGFloat = tooltipOverflow
 
         // Bottom-left corner
         path.move(to: CGPoint(x: dockLeft + cornerRadius, y: dockBottom))
@@ -282,14 +283,42 @@ final class NotchWindowController: NSWindowController {
         maskLayer.path = path
         bgView.layer?.mask = maskLayer
 
-        // Subtle border
-        let borderLayer = CAShapeLayer()
-        borderLayer.path = path
-        borderLayer.fillColor = nil
-        borderLayer.strokeColor = NSColor.white.withAlphaComponent(0.15).cgColor
-        borderLayer.lineWidth = 0.5
-        borderLayer.frame = bounds
-        bgView.layer?.addSublayer(borderLayer)
+        // Shiny gradient border
+        let borderShape = CAShapeLayer()
+        borderShape.path = path
+        borderShape.fillColor = nil
+        borderShape.strokeColor = NSColor.white.cgColor
+        borderShape.lineWidth = 1.5
+        borderShape.frame = bounds
+
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.frame = bounds
+        gradientLayer.type = .conic
+        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
+        gradientLayer.endPoint = CGPoint(x: 0.5, y: 0)
+        gradientLayer.colors = [
+            NSColor.white.withAlphaComponent(0.05).cgColor,
+            NSColor.white.withAlphaComponent(0.4).cgColor,
+            NSColor.white.withAlphaComponent(0.8).cgColor,
+            NSColor.white.withAlphaComponent(0.4).cgColor,
+            NSColor.white.withAlphaComponent(0.05).cgColor,
+            NSColor.white.withAlphaComponent(0.4).cgColor,
+            NSColor.white.withAlphaComponent(0.8).cgColor,
+            NSColor.white.withAlphaComponent(0.4).cgColor,
+            NSColor.white.withAlphaComponent(0.05).cgColor,
+        ]
+        gradientLayer.mask = borderShape
+
+        // Animate rotation for shimmer effect
+        let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+        rotation.fromValue = 0
+        rotation.toValue = CGFloat.pi * 2
+        rotation.duration = 4.0
+        rotation.repeatCount = .infinity
+        rotation.isRemovedOnCompletion = false
+        gradientLayer.add(rotation, forKey: "shimmerRotation")
+
+        bgView.layer?.addSublayer(gradientLayer)
 
         contentView.addSubview(bgView, positioned: .below, relativeTo: nil)
         backgroundView = bgView
@@ -311,7 +340,8 @@ final class NotchWindowController: NSWindowController {
                 rootView: NotchDockView(
                     store: store,
                     isExpanded: true,
-                    notchHeight: notchRect.height
+                    notchHeight: notchRect.height,
+                    tooltipOverflow: tooltipOverflow
                 )
             )
             hostingView.frame = contentView.bounds

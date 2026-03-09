@@ -5,6 +5,7 @@ struct NotchDockView: View {
     @ObservedObject var store: DockStore
     let isExpanded: Bool
     var notchHeight: CGFloat = 32
+    var tooltipOverflow: CGFloat = 0
 
     @State private var draggingApp: DockApp?
 
@@ -36,6 +37,10 @@ struct NotchDockView: View {
                         }
                     }
                     .padding(10) // equal padding on all sides
+
+                    // Extra space for tooltip to overflow beyond dock background
+                    Spacer()
+                        .frame(height: tooltipOverflow)
                 }
                 .transition(.opacity)
             }
