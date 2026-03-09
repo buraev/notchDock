@@ -2,11 +2,9 @@ import SwiftUI
 
 struct AppIconView: View {
     let app: DockApp
-    @ObservedObject var store: DockStore
+    var isPressed: Bool = false
 
     @State private var isHovering = false
-    @State private var dragOffset: CGSize = .zero
-    @State private var isDraggingOut = false
 
     private let iconSize: CGFloat = 40
 
@@ -14,96 +12,66 @@ struct AppIconView: View {
         AppLauncher.isRunning(bundleID: app.bundleIdentifier)
     }
 
+    private var iconScale: CGFloat {
+        if isPressed { return 0.9 }
+        if isHovering { return 1.05 }
+        return 1.0
+    }
+
     var body: some View {
-        Button {
-            AppLauncher.launch(bundleID: app.bundleIdentifier)
-        } label: {
-            VStack(spacing: 0) {
-                // Icon
-                Image(nsImage: AppLauncher.icon(for: app.bundleIdentifier, size: iconSize))
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: iconSize, height: iconSize)
+        VStack(spacing: 0) {
+            // Icon
+            Image(nsImage: AppLauncher.icon(for: app.bundleIdentifier, size: iconSize))
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: iconSize, height: iconSize)
+                .scaleEffect(iconScale)
+                .animation(.spring(response: 0.25, dampingFraction: 0.3), value: isPressed)
+                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovering)
 
-                // Running indicator dot
-                Circle()
-                    .fill(.white)
-                    .frame(width: 4, height: 4)
-                    .padding(.top, 3)
-                    .opacity(isRunning ? 1 : 0)
-
-                // Tooltip below icon with triangle
-                if isHovering {
-                    tooltipView
-                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
-                }
+            // Running indicator dot
+            Circle()
+                .fill(.white)
+                .frame(width: 4, height: 4)
+                .padding(.top, 3)
+                .opacity(isRunning ? 1 : 0)
+        }
+        // Fixed frame prevents tooltip from affecting layout/hit-testing of neighbors
+        .frame(width: iconSize, height: iconSize + 8)
+        .overlay(alignment: .bottom) {
+            if isHovering {
+                tooltipView
+                    .offset(y: iconSize / 2 + 16)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
+                    .allowsHitTesting(false)
             }
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
                 isHovering = hovering
             }
         }
-        .offset(dragOffset)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Only track vertical drag for removal
-                    let distance = abs(value.translation.height)
-                    if distance > 40 {
-                        isDraggingOut = true
-                        dragOffset = value.translation
-                    }
-                }
-                .onEnded { value in
-                    let distance = abs(value.translation.height)
-                    if distance > 60 {
-                        // Remove from dock with poof
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            dragOffset = CGSize(width: value.translation.width, height: value.translation.height * 2)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            store.removeApp(id: app.id)
-                            dragOffset = .zero
-                            isDraggingOut = false
-                        }
-                    } else {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            dragOffset = .zero
-                            isDraggingOut = false
-                        }
-                    }
-                }
-        )
-        .opacity(isDraggingOut ? 0.5 : 1.0)
     }
 
-    // MARK: - Tooltip with triangle (liquid glass style)
+    // MARK: - Tooltip with triangle
 
     private var tooltipView: some View {
         VStack(spacing: 0) {
-            // Triangle pointing up
             Triangle()
-                .fill(.ultraThinMaterial)
+                .fill(Color.black)
                 .frame(width: 10, height: 5)
-                .padding(.top, 4)
 
-            // Label
             Text(app.name)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.primary)
+                .foregroundColor(.white)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(.ultraThinMaterial)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(.white.opacity(0.2), lineWidth: 0.5)
-                        )
+                        .fill(Color.black)
                 )
         }
     }

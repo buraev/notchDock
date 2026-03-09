@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 final class DockStore: ObservableObject {
 
@@ -8,6 +9,9 @@ final class DockStore: ObservableObject {
     @Published var apps: [DockApp] {
         didSet { save() }
     }
+
+    @Published var isDraggingIcon = false
+    @Published var isExpanded = false
 
     init() {
         self.apps = Self.load()
@@ -33,6 +37,28 @@ final class DockStore: ObservableObject {
 
     func moveApp(from source: IndexSet, to destination: Int) {
         apps.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func moveApp(fromIndex: Int, toIndex: Int) {
+        guard fromIndex != toIndex,
+              fromIndex >= 0, fromIndex < apps.count,
+              toIndex >= 0, toIndex < apps.count else { return }
+        let app = apps.remove(at: fromIndex)
+        apps.insert(app, at: toIndex)
+    }
+
+    // MARK: - Expand / Collapse (animated)
+
+    func expand() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            isExpanded = true
+        }
+    }
+
+    func collapse() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 1.0)) {
+            isExpanded = false
+        }
     }
 
     // MARK: - Persistence

@@ -16,21 +16,24 @@ struct SettingsView: View {
                     .padding(.horizontal)
             } else {
                 ForEach(store.apps) { app in
-                    HStack {
+                    HStack(alignment: .center, spacing: 8) {
                         Image(nsImage: AppLauncher.icon(for: app.bundleIdentifier, size: 20))
                             .resizable()
                             .frame(width: 20, height: 20)
                         Text(app.name)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                         Spacer()
                         Button(role: .destructive) {
                             store.removeApp(id: app.id)
                         } label: {
                             Image(systemName: "minus.circle.fill")
                                 .foregroundColor(.red)
+                                .frame(width: 20, height: 20)
                         }
                         .buttonStyle(.plain)
                     }
+                    .frame(height: 24)
                     .padding(.horizontal)
                 }
             }

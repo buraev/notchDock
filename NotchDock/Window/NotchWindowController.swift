@@ -8,7 +8,6 @@ final class NotchWindowController: NSWindowController {
     private var trackingArea: NSTrackingArea?
     private var isExpanded = false
     private var globalMonitor: Any?
-    private var iconsVisible = false
 
     // Layout constants
     private let iconSize: CGFloat = 40
@@ -16,9 +15,7 @@ final class NotchWindowController: NSWindowController {
     private let dockPadding: CGFloat = 10     // equal padding on all sides
     private let indicatorSpace: CGFloat = 8   // space for running dot below icon
     private let tooltipOverflow: CGFloat = 30  // extra space below dock for tooltip
-
-    // Background view (pure black like notch)
-    private var backgroundView: NSView?
+    private let separatorGap: CGFloat = 4      // gap between notch and dock bar
 
     init(store: DockStore) {
         self.store = store
@@ -30,6 +27,7 @@ final class NotchWindowController: NSWindowController {
         let collapsed = collapsedRect()
         panel.setFrame(collapsed, display: false)
 
+        setupContent()
         setupTrackingArea()
     }
 
@@ -66,8 +64,8 @@ final class NotchWindowController: NSWindowController {
         let dockWidth = max(notchRect.width, contentWidth)
 
         // Height: notch + padding top + icon + indicator space + padding bottom + tooltip overflow
-        let dockAreaHeight = dockPadding + iconSize + indicatorSpace + dockPadding
-        let totalHeight = notchRect.height + dockAreaHeight + tooltipOverflow
+        let dockAreaHeight = 14 + iconSize + indicatorSpace + 2
+        let totalHeight = notchRect.height + separatorGap + dockAreaHeight + tooltipOverflow
 
         return NSRect(
             x: notchRect.midX - dockWidth / 2,
@@ -104,7 +102,7 @@ final class NotchWindowController: NSWindowController {
     }
 
     override func mouseExited(with event: NSEvent) {
-        guard isExpanded else { return }
+        guard isExpanded, !store.isDraggingIcon else { return }
         collapse()
     }
 
@@ -112,7 +110,7 @@ final class NotchWindowController: NSWindowController {
 
     private func installGlobalMonitor() {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-            guard let self = self, self.isExpanded, let window = self.window else { return }
+            guard let self = self, self.isExpanded, !self.store.isDraggingIcon, let window = self.window else { return }
             let mouseLocation = NSEvent.mouseLocation
             let expandedFrame = window.frame
             let tolerance: CGFloat = 15
@@ -132,31 +130,36 @@ final class NotchWindowController: NSWindowController {
         }
     }
 
+    // MARK: - Content (mounted once)
+
+    private func setupContent() {
+        guard let contentView = window?.contentView else { return }
+
+        let notchRect = notchInfo.rect
+        let dockAreaHeight = 14 + iconSize + indicatorSpace + 2
+
+        let hostingView = NSHostingView(
+            rootView: NotchDockView(
+                store: store,
+                notchWidth: notchRect.width,
+                notchHeight: notchRect.height,
+                dockHeight: dockAreaHeight,
+                tooltipOverflow: tooltipOverflow
+            )
+        )
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.layer?.backgroundColor = .clear
+        contentView.addSubview(hostingView)
+    }
+
     // MARK: - Animation
 
     private func expand() {
         isExpanded = true
-        let targetRect = expandedRect()
-
-        // 1. Resize window immediately
-        window?.setFrame(targetRect, display: true)
+        window?.setFrame(expandedRect(), display: true)
         setupTrackingArea()
-
-        // 2. Setup black background (hidden)
-        setupBackgroundView(for: targetRect)
-        backgroundView?.alphaValue = 0
-
-        // 3. Fade in background
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.15
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            self.backgroundView?.animator().alphaValue = 1.0
-        }, completionHandler: {
-            // 4. After background visible, show icons
-            self.iconsVisible = true
-            self.updateContent(expanded: true)
-        })
-
+        store.expand()
         installGlobalMonitor()
     }
 
@@ -164,190 +167,13 @@ final class NotchWindowController: NSWindowController {
         guard isExpanded else { return }
         isExpanded = false
         removeGlobalMonitor()
+        store.collapse()
 
-        // 1. Hide icons first
-        iconsVisible = false
-        updateContent(expanded: false)
-
-        // 2. Small delay, then fade out background
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.15
-                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                self.backgroundView?.animator().alphaValue = 0
-            }, completionHandler: {
-                self.backgroundView?.removeFromSuperview()
-                self.backgroundView = nil
-
-                // Remove hosting views
-                self.window?.contentView?.subviews
-                    .filter { $0 !== self.backgroundView }
-                    .forEach { $0.removeFromSuperview() }
-
-                let collapsed = self.collapsedRect()
-                self.window?.setFrame(collapsed, display: true)
-                self.setupTrackingArea()
-            })
-        }
-    }
-
-    // MARK: - Background View (pure black like notch)
-
-    private func setupBackgroundView(for windowRect: NSRect) {
-        backgroundView?.removeFromSuperview()
-
-        guard let contentView = window?.contentView else { return }
-        let bounds = contentView.bounds
-        let notchRect = notchInfo.rect
-
-        // Calculate notch position relative to the window
-        let notchLocalX = notchRect.origin.x - windowRect.origin.x
-        let notchLocalWidth = notchRect.width
-        let notchLocalHeight = notchRect.height
-        let dockTop = bounds.height - notchLocalHeight
-
-        let bgView = NSView(frame: bounds)
-        bgView.wantsLayer = true
-        bgView.layer?.backgroundColor = NSColor.black.cgColor
-        bgView.autoresizingMask = [.width, .height]
-
-        // Create custom T-shape: dock bar + notch connector
-        let path = CGMutablePath()
-        let cornerRadius: CGFloat = 22
-        let notchCornerRadius: CGFloat = 14
-
-        let dockLeft: CGFloat = 0
-        let dockRight = bounds.width
-        let dockBottom: CGFloat = tooltipOverflow
-
-        // Bottom-left corner
-        path.move(to: CGPoint(x: dockLeft + cornerRadius, y: dockBottom))
-        path.addLine(to: CGPoint(x: dockRight - cornerRadius, y: dockBottom))
-
-        // Bottom-right corner
-        path.addArc(tangent1End: CGPoint(x: dockRight, y: dockBottom),
-                     tangent2End: CGPoint(x: dockRight, y: dockBottom + cornerRadius),
-                     radius: cornerRadius)
-
-        // Right edge up to notch level
-        path.addLine(to: CGPoint(x: dockRight, y: dockTop - cornerRadius))
-
-        // Top-right corner of dock
-        path.addArc(tangent1End: CGPoint(x: dockRight, y: dockTop),
-                     tangent2End: CGPoint(x: dockRight - cornerRadius, y: dockTop),
-                     radius: cornerRadius)
-
-        // Top edge to right side of notch
-        let notchRight = notchLocalX + notchLocalWidth
-        path.addLine(to: CGPoint(x: notchRight + notchCornerRadius, y: dockTop))
-
-        // Curve into notch right side
-        path.addArc(tangent1End: CGPoint(x: notchRight, y: dockTop),
-                     tangent2End: CGPoint(x: notchRight, y: dockTop + notchCornerRadius),
-                     radius: notchCornerRadius)
-
-        // Right edge of notch going up
-        path.addLine(to: CGPoint(x: notchRight, y: bounds.height))
-
-        // Top of notch
-        path.addLine(to: CGPoint(x: notchLocalX, y: bounds.height))
-
-        // Left edge of notch going down
-        path.addLine(to: CGPoint(x: notchLocalX, y: dockTop + notchCornerRadius))
-
-        // Curve out of notch left side
-        path.addArc(tangent1End: CGPoint(x: notchLocalX, y: dockTop),
-                     tangent2End: CGPoint(x: notchLocalX - notchCornerRadius, y: dockTop),
-                     radius: notchCornerRadius)
-
-        // Top edge to left side
-        path.addLine(to: CGPoint(x: dockLeft + cornerRadius, y: dockTop))
-
-        // Top-left corner of dock
-        path.addArc(tangent1End: CGPoint(x: dockLeft, y: dockTop),
-                     tangent2End: CGPoint(x: dockLeft, y: dockTop - cornerRadius),
-                     radius: cornerRadius)
-
-        // Left edge down
-        path.addLine(to: CGPoint(x: dockLeft, y: dockBottom + cornerRadius))
-
-        // Bottom-left corner
-        path.addArc(tangent1End: CGPoint(x: dockLeft, y: dockBottom),
-                     tangent2End: CGPoint(x: dockLeft + cornerRadius, y: dockBottom),
-                     radius: cornerRadius)
-
-        path.closeSubpath()
-
-        // Apply shape mask
-        let maskLayer = CAShapeLayer()
-        maskLayer.path = path
-        bgView.layer?.mask = maskLayer
-
-        // Shiny gradient border
-        let borderShape = CAShapeLayer()
-        borderShape.path = path
-        borderShape.fillColor = nil
-        borderShape.strokeColor = NSColor.white.cgColor
-        borderShape.lineWidth = 1.5
-        borderShape.frame = bounds
-
-        let gradientLayer = CAGradientLayer()
-        gradientLayer.frame = bounds
-        gradientLayer.type = .conic
-        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
-        gradientLayer.endPoint = CGPoint(x: 0.5, y: 0)
-        gradientLayer.colors = [
-            NSColor.white.withAlphaComponent(0.05).cgColor,
-            NSColor.white.withAlphaComponent(0.4).cgColor,
-            NSColor.white.withAlphaComponent(0.8).cgColor,
-            NSColor.white.withAlphaComponent(0.4).cgColor,
-            NSColor.white.withAlphaComponent(0.05).cgColor,
-            NSColor.white.withAlphaComponent(0.4).cgColor,
-            NSColor.white.withAlphaComponent(0.8).cgColor,
-            NSColor.white.withAlphaComponent(0.4).cgColor,
-            NSColor.white.withAlphaComponent(0.05).cgColor,
-        ]
-        gradientLayer.mask = borderShape
-
-        // Animate rotation for shimmer effect
-        let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
-        rotation.fromValue = 0
-        rotation.toValue = CGFloat.pi * 2
-        rotation.duration = 4.0
-        rotation.repeatCount = .infinity
-        rotation.isRemovedOnCompletion = false
-        gradientLayer.add(rotation, forKey: "shimmerRotation")
-
-        bgView.layer?.addSublayer(gradientLayer)
-
-        contentView.addSubview(bgView, positioned: .below, relativeTo: nil)
-        backgroundView = bgView
-    }
-
-    // MARK: - Content
-
-    private func updateContent(expanded: Bool) {
-        guard let contentView = window?.contentView else { return }
-
-        // Remove existing hosting views (keep background)
-        contentView.subviews
-            .filter { $0 !== backgroundView }
-            .forEach { $0.removeFromSuperview() }
-
-        if expanded && iconsVisible {
-            let notchRect = notchInfo.rect
-            let hostingView = NSHostingView(
-                rootView: NotchDockView(
-                    store: store,
-                    isExpanded: true,
-                    notchHeight: notchRect.height,
-                    tooltipOverflow: tooltipOverflow
-                )
-            )
-            hostingView.frame = contentView.bounds
-            hostingView.autoresizingMask = [.width, .height]
-            hostingView.layer?.backgroundColor = .clear
-            contentView.addSubview(hostingView)
+        // Wait for spring animation to settle before shrinking window
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self = self, !self.isExpanded else { return }
+            self.window?.setFrame(self.collapsedRect(), display: true)
+            self.setupTrackingArea()
         }
     }
 }

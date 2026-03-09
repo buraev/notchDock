@@ -13,6 +13,7 @@ struct NotchDockApp: App {
             }
             .keyboardShortcut("q")
         }
+        .menuBarExtraStyle(.window)
     }
 }
 
